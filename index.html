@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Babylon VR + Havok V2</title>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+
+  <!-- Vite エントリポイント -->
+  <script type="module" src="/src/main.js"></script>
+
+  <!-- Havok CDN (バンドル外) -->
+  <script type="module" src="https://cdn.babylonjs.com/havok/HavokPhysics_es.js"></script>
+
+  <style>
+    html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }
+    #renderCanvas { width:100%; height:100%; display:block; }
+  </style>
+</body>
+</html>

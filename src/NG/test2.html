@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Babylon.js VR Example</title>
+  <style>
+    html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:#111}
+    #renderCanvas{width:100%;height:100%;touch-action:none;}
+    #ui{position:fixed;left:12px;top:12px;z-index:10;color:#eee;font-family:Arial,Helvetica,sans-serif}
+    button{padding:8px 12px;border-radius:6px;border:none;background:#2b6ef6;color:#fff;cursor:pointer}
+    button:disabled{opacity:.5}
+  </style>
+  <!-- Babylon.js core from CDN -->
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+  <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+  <!-- Optional: load controller models support -->
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  <script src="https://cdn.babylonjs.com/havokPhysics_umd.js"></script>
+  <script>
+  const havokInstance = await HavokPhysics();
+  const physicsPlugin = new BABYLON.HavokPlugin(true, havokInstance);
+      scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), physicsPlugin);
+  </script>
+</head>
+<body>
+  <div id="ui">
+    <div style="margin-bottom:8px">Babylon.js VR demo</div>
+    <button id="enterVr">Enter VR</button>
+    <div id="status" style="margin-top:8px;font-size:13px;opacity:0.9"></div>
+  </div>
+  <canvas id="renderCanvas"></canvas>
+
+  <script>
+    (async function(){
+      const canvas = document.getElementById('renderCanvas');
+      const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+
+
+
+      let xrHelper = null;
+
+      const createScene = async () => {
+        const scene = new BABYLON.Scene(engine);
+
+        // Camera (standing height ~1.6m)
+        const camera = new BABYLON.UniversalCamera('camera1', new BABYLON.Vector3(0, 1.6, -4), scene);
+        camera.attachControl(canvas, true);
+
+        // Light
+        const light = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0, 1, 0), scene);
+        light.intensity = 0.9;
+
+        // Ground / floor
+        const ground = BABYLON.MeshBuilder.CreateGround('ground', {width: 12, height: 12}, scene);
+        const groundMat = new BABYLON.StandardMaterial('gmat', scene);
+        groundMat.diffuseColor = new BABYLON.Color3(0.2, 0.6, 0.2);
+        ground.material = groundMat;
+
+        // A simple box
+        const box = BABYLON.MeshBuilder.CreateBox('box', {size: 0.6}, scene);
+        box.position = new BABYLON.Vector3(0, 0.3, 1.5);
+
+        // A few visual helpers
+        const grid = new BABYLON.GridMaterial('grid', scene);
+        grid.majorUnitFrequency = 5;
+        grid.gridRatio = 1;
+        grid.backFaceCulling = false;
+        // attach grid as an overlay on the ground via a thin plane
+        const gridPlane = BABYLON.MeshBuilder.CreateGround('gridPlane', {width:12, height:12}, scene);
+        gridPlane.position.y = 0.001; // slightly above ground
+        gridPlane.material = grid;
+
+
+	const result = await BABYLON.SceneLoader.ImportMeshAsync("", "models/", "myModel.glb", scene);
+	const model = result.meshes[0];
+
+	model.position.set(0, 1, 0);
+	model.scaling.set(0.2, 0.2, 0.2);
+
+	// // 物理ボディ（質量あり → 動く）
+	// model.physicsBody = new BABYLON.PhysicsBody(
+	//   model,
+	//   BABYLON.PhysicsMotionType.DYNAMIC,
+	//   false,
+	//   scene
+	// );
+	// model.physicsBody.setMassProperties({ mass: 1 });
+
+
+        // Create default XR experience (adds controllers and a basic enter/exit flow)
+        // Provide floorMeshes so teleportation and floor detection work
+        try {
+          xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: [ground] });
+          document.getElementById('status').textContent = 'WebXR available on this device/browser.';
+
+          // When controllers are added, log and optionally add a visual pointer
+          xrHelper.input.onControllerAddedObservable.add((controller) => {
+	    console.log('Controller added:', controller.uniqueId);
+
+	    // hand-tracking かどうか判定（optional）
+	      if (controller.inputSource && controller.inputSource.hand) {
+		  console.log("Hand tracking controller detected!");
+	      }
+
+	      // box をコントローラに追従させる
+	      scene.onBeforeRenderObservable.add(() => {
+		  if (controller.grip) {
+		      box.position.copyFrom(controller.grip.position);
+		      box.rotationQuaternion = controller.grip.rotationQuaternion;
+		  } else if (controller.pointer) {
+		      box.position.copyFrom(controller.pointer.position);
+		      box.rotationQuaternion = controller.pointer.rotationQuaternion;
+		  }
+	      });
+	  });
+
+          xrHelper.input.onControllerRemovedObservable.add((controller) => {
+            console.log('Controller removed:', controller.uniqueId);
+          });
+
+        } catch (e) {
+          console.warn('WebXR not available:', e);
+          document.getElementById('status').textContent = 'WebXR NOT available �\ try with a compatible VR headset & HTTPS.';
+        }
+
+        return scene;
+      };
+
+      const scene = await createScene();
+
+      engine.runRenderLoop(() => {
+        if (scene) scene.render();
+      });
+
+      window.addEventListener('resize', () => engine.resize());
+
+      const enterBtn = document.getElementById('enterVr');
+      enterBtn.addEventListener('click', async () => {
+        if (!xrHelper) {
+          alert('WebXR helper is not available on this browser/device.');
+          return;
+        }
+        enterBtn.disabled = true;
+        document.getElementById('status').textContent = 'Entering XR...';
+        try {
+          // request immersive-vr session. Use 'local-floor' reference space for standing experiences
+          await xrHelper.baseExperience.enterXRAsync('immersive-vr', 'local-floor');
+          document.getElementById('status').textContent = 'In XR session.';
+        } catch (err) {
+          console.error('enterXR error', err);
+          document.getElementById('status').textContent = 'Failed to enter XR: ' + (err.message || err);
+          enterBtn.disabled = false;
+        }
+      });
+
+    })();
+  </script>
+</body>
+</html>
